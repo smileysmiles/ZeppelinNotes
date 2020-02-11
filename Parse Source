@@ -1,0 +1,86 @@
+%pyspark
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from pyspark.sql import functions as F
+from pyspark.sql import Window
+
+
+sc = SparkContext.getOrCreate()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+
+##****************************************************  PROCESS DYNAMO DB DATA  **********************************************************************************
+dynamodatastore = glueContext.create_dynamic_frame.from_catalog(database = "gaming_data_lake", table_name = "dynamo_gaming_datagameround_test", transformation_ctx = "dynamodatastore")
+##convert to PySpark DataFrame from Glue Dynamic Frame
+ddbFrame = dynamodatastore.toDF()
+
+##Resolve choices
+dynamodatastore = dynamodatastore.resolveChoice(specs = [('Transactions[].amount', 'cast:double'), ('Transactions[].balance', 'cast:double'), ('Transactions[].requestedAmount', 'cast:double'), ('Transactions[].transactionId', 'cast:string')])
+##Relationalize the data (extranct the transactions data from the embeded json)
+dfc = dynamodatastore.relationalize("transactions", "s3://gamingdataglue")
+
+##Join the relationalized data
+transactionsDatasource = dfc.select('transactions')
+transactionDetailsDatasource = dfc.select('transactions_Transactions')
+joinedTransactionData = Join.apply(transactionsDatasource, transactionDetailsDatasource, 'Transactions', 'id')
+
+
+##****************************************************  PROCESS CLOUD WATCH DATA  **********************************************************************************
+s3datastore = glueContext.create_dynamic_frame.from_catalog(database = "gaming_data_lake", table_name = "gaming_data_test", transformation_ctx = "s3datastore")
+##convert to a pySpark dataframe
+s3Frame = s3datastore.toDF()
+s3Frame.show(50, False)
+##filter the dataframe
+##s3Frame= s3Frame.filter(s3Frame.gameSessionId == '1580987046266-174-5R72TZENFO483' )
+##We only want to merge in the gamename
+##Restrict values to Bet Only as many results are missing we will back fill with the bet data.
+s3Frame = s3Frame.filter(s3Frame.type == 'BET' )
+s3Frame = s3Frame.select(s3Frame.gameSessionId, s3Frame.gameName, s3Frame.roundId, s3Frame.dateTime)
+s3Frame.show(50, False)
+
+
+##****************************************************  JOIN THE DATASETS  **********************************************************************************
+joinedFrame = joinedTransactionData.toDF()
+
+##joinedFrame = joinedFrame.filter(joinedFrame.Token == '1580987046266-174-5R72TZENFO483' )
+
+## Rename the joined columns to be more friendly
+joinedFrame = joinedFrame.withColumnRenamed("Transactions.val.transactionId", "transactionId")\
+    .withColumnRenamed("Transactions.val.balance", "balance")\
+    .withColumnRenamed("Transactions.val.status", "transactionstatus")\
+    .withColumnRenamed("Transactions.val.redTigerWagerType", "wagertype")\
+    .withColumnRenamed("Transactions.val.type", "transactionType")\
+    .withColumnRenamed("GameRoundAccountNumber", "accountnumber")\
+    .withColumnRenamed("Transactions.val.amount", "amount")\
+    .withColumnRenamed("Transactions.val.requestedAmount", "requestedamount")\
+    .withColumnRenamed("Transactions.val.currency", "currency")\
+    
+
+    
+##Join the dynamodb data with the cloudwatch data on sessionId and roundId
+df = s3Frame.join(joinedFrame, (s3Frame.gameSessionId == joinedFrame.Token) & (s3Frame.roundId == joinedFrame.SortKey))
+
+window = Window.orderBy(F.col("dateTime"))
+
+df = df.withColumn('row_number', F.row_number().over(window))
+
+## create the base Datframe with the fields we want.
+baseDataframe  = df.select(df.row_number, df.dateTime, F.year(df.dateTime).alias("year"), F.month(df.dateTime).alias("month"), F.dayofmonth(df.dateTime).alias("day"), F.hour(df.dateTime).alias("hour"), F.minute(df.dateTime).alias("min"),df.gameSessionId, df.roundId, df.GameProvider, df.gameName, df.accountnumber, df.transactionType, df.transactionId, df.currency, df.balance, df.requestedamount, df.amount, df.wagertype)
+
+baseDataframe.printSchema()
+baseDataframe.show(50, False)
+
+
+
+
+
+
+
+
+
+
+
+##job.commit()
