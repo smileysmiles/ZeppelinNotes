@@ -1,0 +1,55 @@
+%pyspark
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from pyspark.sql import functions as F
+
+
+sc = SparkContext.getOrCreate()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+
+##****************************************************  PROCESS DYNAMO DB DATA  **********************************************************************************
+dynamodatastore = glueContext.create_dynamic_frame.from_catalog(database = "gaming_data_lake", table_name = "dynamo_gaming_datagameround_test", transformation_ctx = "dynamodatastore")
+##convert to PySpark DataFrame from Glue Dynamic Frame
+ddbFrame = dynamodatastore.toDF()
+
+
+##**************************************************** Base dataset created time for FUN **********************************************************************************
+
+velocityPerMin = baseDataframe.groupby('accountnumber', 'year', 'month', 'day', 'hour', 'min' ).avg('amount').orderBy('accountnumber')
+velocityPerMin.show(50, False)
+
+velocityPerHour = baseDataframe.groupby('accountnumber', 'gameSessionId' )\
+    .pivot('transactionType')\
+    .agg( F.sum('amount').alias('Total')\
+        ,F.avg('amount').alias('velocity'),\
+        F.min('amount').alias('min'),\
+        F.max('amount').alias('max'),\
+        F.count('accountnumber').alias('count'))\
+        .orderBy('accountnumber')
+velocityPerHour.show(50, False)
+
+velocityPerDay = baseDataframe.groupby('accountnumber', 'year', 'month', 'day' ).avg('amount').orderBy('accountnumber')
+velocityPerDay.show(50, False)
+
+velocityPerMonth = baseDataframe.groupby('accountnumber', 'year', 'month' ).avg('amount').orderBy('accountnumber')
+velocityPerMonth.show(50, False)
+
+
+countpermin = baseDataframe.groupby('accountnumber', 'year', 'month', 'day', 'hour', 'min' ).count().orderBy('accountnumber')
+countpermin.show(50, False)
+
+countperhour = baseDataframe.groupby('accountnumber', 'year', 'month', 'day', 'hour' ).count().orderBy('accountnumber')
+countperhour.show(50, False)
+
+countperday = baseDataframe.groupby('accountnumber', 'year', 'month', 'day' ).count().orderBy('accountnumber')
+countperday.show(50, False)
+
+countpermonth = baseDataframe.groupby('accountnumber', 'year', 'month' ).count().orderBy('accountnumber')
+countpermonth.show(50, False)
+
+countpermonth = baseDataframe.groupby('accountnumber', 'year', 'month' ).count().orderBy('accountnumber')
+countpermonth.show(50, False)
